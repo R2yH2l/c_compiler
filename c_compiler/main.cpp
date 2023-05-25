@@ -32,7 +32,7 @@ public:
 // Represents a constant (like "2")
 class constant : public ast_node{
 public:
-	int value;
+	int value{};
 
 	constant(int value) : value(value) {}
 };
@@ -40,7 +40,7 @@ public:
 // Represents a return statement
 class return_statement : public ast_node {
 public:
-	std::unique_ptr<constant> expression;
+	std::unique_ptr<constant> expression{};
 
 	return_statement(std::unique_ptr<constant> expression) : expression(std::move(expression)) {}
 };
@@ -48,7 +48,7 @@ public:
 // Represents a block of code
 class compound_statement : public ast_node {
 public:
-	std::unique_ptr<return_statement> statement;
+	std::unique_ptr<return_statement> statement{};
 
 	compound_statement(std::unique_ptr<return_statement> statement) : statement(std::move(statement)) {}
 };
@@ -56,9 +56,9 @@ public:
 // Represents a function definition
 class function_definition : public ast_node {
 public:
-	std::string return_type;
-	std::string name;
-	std::unique_ptr<compound_statement> body;
+	std::string return_type{};
+	std::string name{};
+	std::unique_ptr<compound_statement> body{};
 
 	function_definition(std::string return_type, std::string name, std::unique_ptr<compound_statement> body)
 		: return_type(return_type), name(name), body(std::move(body)) {}
@@ -67,16 +67,169 @@ public:
 // Represents a program, which consists of a sequence of function definitions
 class program : public ast_node {
 public:
-	std::vector<std::unique_ptr<function_definition>> functions;
+	std::vector<std::unique_ptr<function_definition>> functions{};
 
 	void add_function(std::unique_ptr<function_definition> function) {
 		functions.push_back(std::move(function));
 	}
 };
 
+class token_parser {
+	const std::vector<token> tokens{};
+	size_t current_index{};
+
+public:
+	token_parser(std::vector<token> tokens) : tokens(tokens) {}
+
+	std::unique_ptr<program> parse() {
+		// Parse a program...
+		program prog{};
+
+		prog.add_function(parse_function_definition());
+
+		return std::make_unique<program>(prog);
+	}
+
+	std::unique_ptr<function_definition> parse_function_definition() {
+		// Parse a function definition...
+		size_t index_offset{ current_index };
+
+		token retun_type{ tokens[index_offset] };
+
+		if (!token_type_matches(tokens[index_offset++], { token_type::keyword_int })) {
+			return nullptr;
+		}
+
+		token name{ tokens[index_offset] };
+
+		if (!token_type_matches(tokens[index_offset++], { token_type::identifier })) {
+			return nullptr;
+		}
+
+		index_offset = find_next_token(++index_offset, { token_type::punctuation });
+
+		if (index_offset == tokens.size()) {
+			return nullptr;
+		}
+
+		if (tokens[index_offset].value != "(") {
+			return nullptr;
+		}
+
+		index_offset = find_next_token(++index_offset, { token_type::punctuation });
+
+		if (index_offset == tokens.size()) {
+			return nullptr;
+		}
+
+		if (tokens[index_offset].value != "(") {
+			return nullptr;
+		}
+
+		index_offset = find_next_token(++index_offset, { token_type::punctuation });
+
+		if (index_offset == tokens.size()) {
+			return nullptr;
+		}
+
+		if (tokens[index_offset].value != "{") {
+			return nullptr;
+		}
+
+		size_t body_start{ index_offset };
+
+		index_offset = find_next_token(++index_offset, { token_type::punctuation });
+
+		if (index_offset == tokens.size()) {
+			return nullptr;
+		}
+
+		if (tokens[index_offset].value != "}") {
+			return nullptr;
+		}
+
+		size_t body_end{ index_offset };
+
+		index_offset = find_next_token(body_start, { token_type::keyword_return });
+
+		if (index_offset > body_end) {
+			std::printf("Error: %s must return a value.", name.value.c_str());
+			return nullptr;
+		}
+
+		if (find_next_token(index_offset, { token_type::punctuation }) > body_end) {
+			std::printf("Error: missing ';' after %s statement.", tokens[index_offset].value.c_str());
+			return nullptr;
+		}
+
+		current_index = index_offset;
+
+		auto ptr = std::unique_ptr<function_definition>{ new function_definition {retun_type.value, name.value, parse_compound_statement()} };
+		return ptr;
+	}
+
+	std::unique_ptr<compound_statement> parse_compound_statement() {
+		// Parse a compound statement...
+		size_t index_offset{ current_index };
+
+		if (token_type_matches(tokens[index_offset++], { token_type::keyword_return })) {
+			auto ptr = std::unique_ptr<compound_statement>{ new compound_statement{parse_return_statement()} };
+			return ptr;
+		}
+
+		return nullptr;
+	}
+
+	std::unique_ptr<return_statement> parse_return_statement() {
+		// Parse a return statement...
+		size_t index_offset{ current_index };
+
+		if (!token_type_matches(tokens[index_offset++], { token_type::keyword_return })) {
+			return nullptr;
+		}
+
+		if (!token_type_matches(tokens[index_offset++], { token_type::integer_literal })) {
+			return nullptr;
+		}
+
+		if (!(token_type_matches(tokens[index_offset], { token_type::punctuation })) || !(tokens[index_offset].value == ";")) {
+			return nullptr;
+		}
+
+		current_index = index_offset - 1;
+
+		auto ptr = std::unique_ptr<return_statement>{ new return_statement(parse_constant()) };
+		return ptr;
+	}
+
+	std::unique_ptr<constant> parse_constant() {
+		// Parse a constant...
+		if (!token_type_matches(tokens[current_index], { token_type::integer_literal })) {
+			return nullptr;
+		}
+
+		auto ptr = std::unique_ptr<constant>{ new constant{std::stoi(tokens[current_index].value)} };
+		return ptr;
+	}
+
+	size_t find_next_token(size_t start_index, const std::vector<token_type>& types) {
+		for (size_t i{ start_index }; i < tokens.size(); i++) {
+			if (std::find(types.begin(), types.end(), tokens[i].type) != types.end()) {
+				return i;
+			}
+		}
+
+		return tokens.size();
+	}
+
+	bool token_type_matches(const token& tok, const std::vector<token_type>& types) {
+		return std::find(types.begin(), types.end(), tok.type) != types.end();
+	}
+};
+
 std::vector<token> lex(const std::string& source);
 
-program parse(std::vector<token> tokens);
+void print_tokens(const std::vector<token>& tokens);
 
 int main() {
 	std::fstream file("test.c");
@@ -88,11 +241,13 @@ int main() {
 		std::istreambuf_iterator<char>(file),
 		std::istreambuf_iterator<char>()};
 
-	// source = strip(source);
-
 	std::vector<token> tokens{ lex(source) };
 
-	program prog{ parse(tokens) };
+	// print_tokens(tokens);
+
+	token_parser parser{ tokens };
+
+	parser.parse();
 
 	return 0;
 }
@@ -158,22 +313,29 @@ std::vector<token> lex(const std::string& source) {
 	return tokens;
 }
 
-program parse(std::vector<token> tokens) {
-	program prog{};
+void print_tokens(const std::vector<token>& tokens) {
+	for (const auto& tok : tokens) {
+		std::cout << "{ \"" << tok.value << "\", ";
 
-	std::unique_ptr<function_definition> function{
-		std::make_unique<function_definition>(
-			tokens[0].value,
-			tokens[1].value,
-			std::make_unique<compound_statement>(
-				std::make_unique<return_statement>(
-					std::make_unique<constant>(std::stoi(tokens[6].value.c_str()))
-				)
-			)
-		)
-	};
+		switch (tok.type) {
+		case token_type::keyword_int:
+			std::cout << "keyword_int";
+			break;
+		case token_type::keyword_return:
+			std::cout << "keyword_return";
+			break;
+		case token_type::identifier:
+			std::cout << "identifier";
+			break;
+		case token_type::punctuation:
+			std::cout << "punctuation";
+			break;
+		case token_type::integer_literal:
+			std::cout << "integer_literal";
+			break;
+		}
 
-	prog.add_function(std::move(function));
-
-	return prog;
+		std::cout << " }, ";
+	}
+	std::cout << std::endl;
 }
