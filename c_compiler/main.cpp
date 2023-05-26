@@ -83,11 +83,13 @@ public:
 
 	std::unique_ptr<program> parse() {
 		// Parse a program...
-		program prog{};
+		auto prog{ std::make_unique<program>() };
 
-		prog.add_function(parse_function_definition());
+		std::unique_ptr<function_definition> func = parse_function_definition();
 
-		return std::make_unique<program>(prog);
+		prog->add_function(std::move(func));
+
+		return prog;
 	}
 
 	std::unique_ptr<function_definition> parse_function_definition() {
@@ -106,7 +108,7 @@ public:
 			return nullptr;
 		}
 
-		index_offset = find_next_token(++index_offset, { token_type::punctuation });
+		index_offset = find_next_token(index_offset, { token_type::punctuation });
 
 		if (index_offset == tokens.size()) {
 			return nullptr;
@@ -122,7 +124,7 @@ public:
 			return nullptr;
 		}
 
-		if (tokens[index_offset].value != "(") {
+		if (tokens[index_offset].value != ")") {
 			return nullptr;
 		}
 
@@ -137,6 +139,12 @@ public:
 		}
 
 		size_t body_start{ index_offset };
+
+		index_offset = find_next_token(++index_offset, { token_type::punctuation });
+
+		if (index_offset == tokens.size()) {
+			return nullptr;
+		}
 
 		index_offset = find_next_token(++index_offset, { token_type::punctuation });
 
@@ -164,8 +172,7 @@ public:
 
 		current_index = index_offset;
 
-		auto ptr = std::unique_ptr<function_definition>{ new function_definition {retun_type.value, name.value, parse_compound_statement()} };
-		return ptr;
+		return std::make_unique<function_definition>(retun_type.value, name.value, parse_compound_statement());
 	}
 
 	std::unique_ptr<compound_statement> parse_compound_statement() {
@@ -173,8 +180,7 @@ public:
 		size_t index_offset{ current_index };
 
 		if (token_type_matches(tokens[index_offset++], { token_type::keyword_return })) {
-			auto ptr = std::unique_ptr<compound_statement>{ new compound_statement{parse_return_statement()} };
-			return ptr;
+			return std::make_unique<compound_statement>(parse_return_statement());
 		}
 
 		return nullptr;
@@ -198,8 +204,7 @@ public:
 
 		current_index = index_offset - 1;
 
-		auto ptr = std::unique_ptr<return_statement>{ new return_statement(parse_constant()) };
-		return ptr;
+		return std::make_unique<return_statement>(parse_constant());
 	}
 
 	std::unique_ptr<constant> parse_constant() {
@@ -208,8 +213,7 @@ public:
 			return nullptr;
 		}
 
-		auto ptr = std::unique_ptr<constant>{ new constant{std::stoi(tokens[current_index].value)} };
-		return ptr;
+		return std::make_unique<constant>(std::stoi(tokens[current_index].value));
 	}
 
 	size_t find_next_token(size_t start_index, const std::vector<token_type>& types) {
@@ -247,7 +251,7 @@ int main() {
 
 	token_parser parser{ tokens };
 
-	parser.parse();
+	auto prog = parser.parse();
 
 	return 0;
 }
